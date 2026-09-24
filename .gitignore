@@ -1,0 +1,9 @@
+packages/
+
+*.shm
+*.zip
+*.campsite
+
+# compiled objects
+*.o
+shima
