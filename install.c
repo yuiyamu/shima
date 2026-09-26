@@ -296,7 +296,7 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
                     if (!parsed_local) {
                         for (int j = 0; local_dir_ls[j] != NULL; j++) {
                             char *file_ext = strrchr(local_dir_ls[j], '.');
-                            if (file_ext != NULL && strncmp(file_ext, ".shm", 4) == 0) {
+                            if (file_ext != NULL && strncmp(file_ext, ".shm", 4) == 0 && strlen(file_ext) == (size_t)4) { //last one prevents .shmdb :p
                                 local_shima_pkgs = safe_alloc(local_shima_pkgs, sizeof(struct Campsite *) * (num_local + 1));
                                 campsite_file_num = safe_alloc(campsite_file_num, sizeof(int) * (num_local + 1));
                                 local_shima_pkgs[num_local] = parse_shima_package(local_dir_ls[j]);
@@ -308,9 +308,9 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
                     }
 
                     for (int j = 0; j < (int)num_local; j++) {
-                        if (strcmp(packages[i]->pkg_name, local_shima_pkgs[j]->pkg_name) == 0) {
+                        if (local_shima_pkgs[j]->pkg_name != NULL && strcmp(packages[i]->pkg_name, local_shima_pkgs[j]->pkg_name) == 0) {
                             packages[i]->pkg_location = strdup(local_dir_ls[campsite_file_num[j]]);
-                            packages[i]->post_install_hooks = local_shima_pkgs[campsite_file_num[j]]->post_install_steps;
+                            packages[i]->post_install_hooks = local_shima_pkgs[j]->post_install_steps;
                             break;
                         }
                     }

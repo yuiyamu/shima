@@ -297,7 +297,8 @@ enum RetCode gen_packagelist(char *shima_folder) {
 
     chdir(shima_folder); //all operations within here, might as well chdir~
     for (int i = 0; folder_ls[i] != NULL; i++) {
-        if (strncmp(strrchr(folder_ls[i], '.'), ".campsite", strlen(".campsite")) == 0) {
+        char *file_ext = strrchr(folder_ls[i], '.');
+        if (file_ext != NULL && strncmp(file_ext, ".campsite", strlen(".campsite")) == 0) {
             campsites = safe_alloc(campsites, sizeof(struct Campsite *) * (num_campsites + 1));
 
             FILE *new_campsite = fopen(folder_ls[i], "r");

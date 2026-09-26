@@ -540,6 +540,8 @@ __attribute__((noreturn)) void memory_fail_exit(void) {
 //should also include safe versions of functions like malloc and whatever here~
 //maybe also string function :0
 void *safe_alloc(void *ptr, size_t bytes) {
+    if (bytes == 0) return NULL; //0 alloc causes a NULL, and we read this as a fail >.<
+
     void *return_ptr = realloc(ptr, bytes);
     if (!return_ptr) memory_fail_exit();
 
@@ -547,6 +549,8 @@ void *safe_alloc(void *ptr, size_t bytes) {
 }
 
 void *safe_calloc(size_t num_elements, size_t element_size) {
+    if (num_elements == 0 || element_size == 0) return NULL;
+
     void *return_ptr = calloc(num_elements, element_size);
     if (!return_ptr) memory_fail_exit();
 
