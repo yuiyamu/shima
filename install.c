@@ -185,11 +185,6 @@ static bool is_pkg_already_installed(char **pkgs_installed, char *cur_pkg_name) 
     return skip_package;
 }
 
-static size_t write_curl_data(void *ptr, size_t size, size_t nmemb, FILE *stream) {
-    size_t written = fwrite(ptr, size, nmemb, stream);
-    return written;
-}
-
 enum RetCode install_provided_packages(char **local_packages, char **db_packages, bool force) {
     //local packages are easier to validate, so let's check that first :p
     //in case deps are also local, we need to see if other .shm exist in the same folder >.<
@@ -368,13 +363,7 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
                 if (source[source_len - 1] == '\n') source[source_len - 1] = '\0'; //we dont like new lines in our goddamn source
             }
 
-            curl_global_init(CURL_GLOBAL_ALL);
-            CURL *curl = curl_easy_init();
-            if (!curl) {
-                fprintf(stderr, "unable to initialize libcurl.\n");
-                return SHM_LIBCURL_ERROR;
-            }
-
+            if (initialize_curl() == SHM_LIBCURL_ERROR) return SHM_LIBCURL_ERROR;
             /* package location resolving */
             bool error_finding_locations = false;
             for (int i = 0; i < (int)num_packages; i++) {
@@ -417,53 +406,9 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
                             return SHM_FILESYSTEM_ERROR;
                         }
 
-                        printf("* fetch %s... ", fetch_url);
-                        fflush(stdout);
-
-                        //ok. we know what to get from the fUcking INTERNET now. ummmmm.... libcurl since im not writing my own internet c code.
-                        curl_easy_setopt(curl, CURLOPT_URL, fetch_url);
-                        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_curl_data); //callback function, what we use to actually write the data coming from interwebs
-                        curl_easy_setopt(curl, CURLOPT_WRITEDATA, shm_file);
-                        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); //follow redirects if we need (shouldnt but yea)
-                        
-                        CURLcode curl_res = curl_easy_perform(curl);
-        
-                        if (curl_res != CURLE_OK) {
-                            fprintf(stderr, "\n!! download failed! from libcurl: %s\n", curl_easy_strerror(curl_res));
-                        } else {
-                            long http_code;
-                            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-                            switch (http_code) {
-                                case 200: {
-                                    packages[i]->pkg_location = strdup(outfile_path);
-                                    printf("ok.\n");
-                                    break;
-                                }
-                                case 404: {
-                                    fprintf(stderr, "[404] file was not found on server.\n");
-                                    error_finding_locations = true;
-                                    break;
-                                }
-                                case 401: {
-                                    fprintf(stderr, "[401] unauthorized to fetch file.\n");
-                                    error_finding_locations = true;
-                                    break;  
-                                }
-                                case 418: {
-                                    fprintf(stderr, "[418] server is a teapot, so cannot serve files.\n");
-                                    error_finding_locations = true;
-                                    break;  
-                                }
-                                case 500: {
-                                    fprintf(stderr, "[500] server encountered an error.\n");
-                                    error_finding_locations = true;
-                                    break;  
-                                }
-                                default: {
-                                    fprintf(stderr, "[%li] http error\n", http_code);
-                                    error_finding_locations = true;
-                                }
-                            }
+                        int curl_ret = curl_download(fetch_url, shm_file);
+                        if (curl_ret == 0) {
+                            packages[i]->pkg_location = strdup(outfile_path);
                         }
                         fclose(shm_file);
                     }
@@ -497,7 +442,7 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
 
             free(campsite_file_num);
             fclose(install_list);
-            curl_easy_cleanup(curl);
+            cleanup_curl();
 
             //gotta cleanup local shima~
             if (local_shima_pkgs != NULL) {

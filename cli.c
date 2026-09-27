@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <curl/curl.h>
 #include "build.h"
 #include "install.h"
 #include "heliotrope.h"
@@ -17,6 +18,112 @@ static void print_help(void) {
     printf("update                    pulls the latest package list from your configured server\n");
     printf("gen-pkglist [folder]      generates a pkglist.shmdb for a folder of campsites (useful for making repos)\n");
     printf("help                      prints this message~\n");
+}
+
+static size_t write_curl_data(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+    size_t written = fwrite(ptr, size, nmemb, stream);
+    return written;
+}
+
+CURL *curl;
+enum RetCode initialize_curl(void) {
+    curl_global_init(CURL_GLOBAL_ALL);
+    curl = curl_easy_init();
+    if (!curl) {
+        fprintf(stderr, "unable to initialize libcurl.\n");
+        return SHM_LIBCURL_ERROR;
+    } else {
+        return SHM_SUCCESS;
+    }
+}
+
+void cleanup_curl(void) {
+    curl_easy_cleanup(curl);
+}
+
+int curl_download(char *fetch_url, FILE *out_file) {    
+    printf("* fetch %s... ", fetch_url);
+    fflush(stdout);
+
+    //ok. we know what to get from the fUcking INTERNET now. ummmmm.... libcurl since im not writing my own internet c code.
+    curl_easy_setopt(curl, CURLOPT_URL, fetch_url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_curl_data); //callback function, what we use to actually write the data coming from interwebs
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out_file);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); //follow redirects if we need (shouldnt but yea)
+                        
+    CURLcode curl_res = curl_easy_perform(curl);
+        
+    if (curl_res != CURLE_OK) {
+        fprintf(stderr, "\n!! download failed! from libcurl: %s\n", curl_easy_strerror(curl_res));
+        return 1;
+    } else {
+        long http_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        switch (http_code) {
+            case 200: {
+                printf("ok.\n");
+                return 0;
+            }
+            case 404: {
+                fprintf(stderr, "[404] file was not found on server.\n");
+                return 1;
+            }
+            case 401: {
+                fprintf(stderr, "[401] unauthorized to fetch file.\n");
+                return 1;
+            }
+            case 418: {
+                fprintf(stderr, "[418] server is a teapot, so cannot serve files.\n");
+                return 1;
+            }
+            case 500: {
+                fprintf(stderr, "[500] server encountered an error.\n");
+                return 1;
+            }
+            default: {
+                fprintf(stderr, "[%li] http error\n", http_code);
+                return 1;
+            }
+        }
+    }
+}
+
+static enum RetCode update_local_files(void) {
+    //ok! first we open up our pkglist, get our server url, and then just fetch with da fetcher
+    char pkglist_path[] = "/etc/shima/pkglist.shmdb";
+    FILE *db_file = fopen(pkglist_path, "wb");
+    if (!db_file) {
+        fprintf(stderr, "!! failed to open the local file database! check if you have root permissions.\n");
+        return SHM_FILESYSTEM_ERROR;
+    }
+
+    FILE *sources_list = fopen("/etc/shima/sources.list", "rb");
+    if (!sources_list) {
+        fprintf(stderr, "!! failed to open the sources.list! check if you have root permissions.\n");
+        return SHM_FILESYSTEM_ERROR;
+    }
+
+    char source[1024] = {0};
+    fgets(source, sizeof(source), sources_list); //also only use first source here like the downloads lmao~
+    fclose(sources_list);
+    
+    size_t source_len = strlen(source);
+    if (source_len == 0) {
+        fprintf(stderr, "!! nothing was found within your sources file. please add an online package repository~\n");
+        return SHM_FILESYSTEM_ERROR;
+    } else {
+        if (source[source_len - 1] == '\n') source[source_len - 1] = '\0'; //we dont like new lines in our goddamn source
+    }
+    
+    char fetch_url[2048] = {0}; 
+    snprintf(fetch_url, sizeof(fetch_url), "%spkglist.shmdb", source);
+
+    initialize_curl();
+    curl_download(fetch_url, db_file);
+    cleanup_curl();
+
+    printf("successfully updated package database.\n");
+    return SHM_SUCCESS;
 }
 
 int main(int argc, char **argv) {
@@ -123,7 +230,7 @@ int main(int argc, char **argv) {
             } else goto bad_args;
         } else if (strcmp(argv[1], "update") == 0) {
             if (argc == 2) { //only "shima update" will trigger this :p
-
+                return update_local_files();
             } else goto bad_args;
         } else if (strcmp(argv[1], "help") == 0) {
             print_help();
