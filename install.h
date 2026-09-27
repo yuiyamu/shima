@@ -15,6 +15,6 @@ struct InstallPkg {
 };
 
 struct Campsite *parse_shima_package(char *file_path);
-enum RetCode install_provided_packages(char **local_packages, char **db_packages);
+enum RetCode install_provided_packages(char **local_packages, char **db_packages, bool force);
 
 #endif

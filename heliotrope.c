@@ -308,6 +308,7 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
     fclose(file);
     free(folder_path);
     free(folder_name);
+    free(central_directory);
 
     return HELIO_SUCCESS;
 }

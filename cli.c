@@ -12,6 +12,7 @@ static void print_help(void) {
     printf("shima package manager, version %s\n\n", VERSION);
     printf("build [file/folder]       builds a package (or folder of packages) with the specified path to a campsite file\n");
     printf("install [name/file]       installs package(s) with the name (searches local db) or a local file\n");
+    printf("force-install [name/file] forces a reinstall, even if you already have the package installed\n");
     printf("remove [name]             removes the named package(s) if it's installed on the system\n");
     printf("update                    pulls the latest package list from your configured server\n");
     printf("gen-pkglist [folder]      generates a pkglist.shmdb for a folder of campsites (useful for making repos)\n");
@@ -69,9 +70,12 @@ int main(int argc, char **argv) {
                     }
                 }
             } else goto bad_args;
-        } else if (strcmp(argv[1], "install") == 0) { //install, also need to see what package we're installing.
+        } else if (strcmp(argv[1], "install") == 0 || strcmp(argv[1], "force-install") == 0) { //install, also need to see what package we're installing
             //if we have a local package (./ or some sort of path), then we find that file!
             //otherwise, we need to go digging in the db for it >.<
+            bool force = false;
+            if (strcmp(argv[1], "force-install") == 0) force = true;
+
             if (argc >= 3) {
                 //we could have any number of args after this, for any number of packages >:3
                 char **local_packages = NULL;
@@ -104,7 +108,7 @@ int main(int argc, char **argv) {
                 db_packages = safe_alloc(db_packages, sizeof(char *) * (num_db + 1));
                 db_packages[num_db] = NULL;
                 
-                return install_provided_packages(local_packages, db_packages);
+                return install_provided_packages(local_packages, db_packages, force);
             } else goto bad_args;
         } else if (strcmp(argv[1], "remove") == 0) {
             

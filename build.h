@@ -20,6 +20,8 @@ struct Campsite {
     uint8_t num_post_steps;
 };
 
+void get_colon_parsed_string(const char *original, char **storage); //also used in install.c :p
+
 enum RetCode build_package(FILE *campsite_file);
 enum RetCode gen_packagelist(char *shima_folder);
 

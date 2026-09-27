@@ -1,7 +1,7 @@
 CC = gcc
 CSTD = -std=c99
-CFLAGS = -Wall -Wextra -g -Os
-LDFLAGS = -fsanitize=address -lz
+CFLAGS = -Wall -Wextra -g -O0
+LDFLAGS = -fsanitize=address -lz -lcurl
 
 TARGET  = shima
 SRCS    = $(wildcard *.c)

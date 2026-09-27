@@ -37,7 +37,7 @@ static char *prepare_extracted_string(char *line) {
 }
 
 //taken straight from yuiedit :p
-static void get_colon_parsed_string(const char *original, char **storage) {
+void get_colon_parsed_string(const char *original, char **storage) {
     char *sub = strchr(original, ':') + 1;
     if (sub[0] == ' ') {
         sub++;
@@ -188,7 +188,7 @@ enum RetCode build_package(FILE *campsite_file) {
         dismantle_campsite(camp);
         return SHM_MALFORMED_CAMPSITE;
     }
-    printf("!! creating package %s-%s...\n\n", camp->pkg_name, camp->pkg_ver);
+    printf("creating package %s-%s...\n\n", camp->pkg_name, camp->pkg_ver);
 
     /* source extraction and build */
     //the first source should always be our zip file, so.. just invoke helio Lol
@@ -247,7 +247,7 @@ enum RetCode build_package(FILE *campsite_file) {
 
     char *shima_folder = helio_get_path(extract_directory, "shima");
     free(extract_directory);
-    printf("!! build successful. making compressed package %s.shm...\n", package_name);
+    printf("build successful. making compressed package %s.shm...\n", package_name);
 
     //time to tack on our metadata!! we need to put it at the start, bc zip is bottom up :p
     char zip_file_name[strlen(package_name) + 5];
@@ -328,7 +328,7 @@ enum RetCode gen_packagelist(char *shima_folder) {
         char cur_pkg_buf[1024] = {0};
         if (campsites[i] == NULL) continue;
 
-        int chars_wrote = sprintf(cur_pkg_buf, "\n%s\n  version: %s\n  desc: %s\n  deps:\n", campsites[i]->pkg_name, campsites[i]->pkg_desc, campsites[i]->pkg_ver);
+        int chars_wrote = sprintf(cur_pkg_buf, "\n%s\n  version: %s\n  desc: %s\n  deps:\n", campsites[i]->pkg_name, campsites[i]->pkg_ver, campsites[i]->pkg_desc);
         for (int j = 0; j < campsites[i]->num_dependencies; j++) {
             int dep_wrote = 0;
             dep_wrote = sprintf(cur_pkg_buf + chars_wrote, "    %s\n", campsites[i]->dependencies[j]);
@@ -356,7 +356,7 @@ enum RetCode gen_packagelist(char *shima_folder) {
     free(campsites);
     fclose(pkglist_file);
 
-    printf("\n!! successfully generated package list~\n");
+    printf("\nsuccessfully generated package list~\n");
 
     return SHM_SUCCESS;
 }
