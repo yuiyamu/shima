@@ -4,9 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <curl/curl.h>
 #include "build.h"
 #include "install.h"
+#include "net.h"
 #include "heliotrope.h"
 
 static void print_help(void) {
@@ -18,74 +18,6 @@ static void print_help(void) {
     printf("update                    pulls the latest package list from your configured server\n");
     printf("gen-pkglist [folder]      generates a pkglist.shmdb for a folder of campsites (useful for making repos)\n");
     printf("help                      prints this message~\n");
-}
-
-static size_t write_curl_data(void *ptr, size_t size, size_t nmemb, FILE *stream) {
-    size_t written = fwrite(ptr, size, nmemb, stream);
-    return written;
-}
-
-CURL *curl;
-enum RetCode initialize_curl(void) {
-    curl_global_init(CURL_GLOBAL_ALL);
-    curl = curl_easy_init();
-    if (!curl) {
-        fprintf(stderr, "unable to initialize libcurl.\n");
-        return SHM_LIBCURL_ERROR;
-    } else {
-        return SHM_SUCCESS;
-    }
-}
-
-void cleanup_curl(void) {
-    curl_easy_cleanup(curl);
-}
-
-int curl_download(char *fetch_url, FILE *out_file) {    
-    printf("* fetch %s... ", fetch_url);
-    fflush(stdout);
-
-    //ok. we know what to get from the fUcking INTERNET now. ummmmm.... libcurl since im not writing my own internet c code.
-    curl_easy_setopt(curl, CURLOPT_URL, fetch_url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_curl_data); //callback function, what we use to actually write the data coming from interwebs
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out_file);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); //follow redirects if we need (shouldnt but yea)
-                        
-    CURLcode curl_res = curl_easy_perform(curl);
-        
-    if (curl_res != CURLE_OK) {
-        fprintf(stderr, "\n!! download failed! from libcurl: %s\n", curl_easy_strerror(curl_res));
-        return 1;
-    } else {
-        long http_code;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        switch (http_code) {
-            case 200: {
-                printf("ok.\n");
-                return 0;
-            }
-            case 404: {
-                fprintf(stderr, "[404] file was not found on server.\n");
-                return 1;
-            }
-            case 401: {
-                fprintf(stderr, "[401] unauthorized to fetch file.\n");
-                return 1;
-            }
-            case 418: {
-                fprintf(stderr, "[418] server is a teapot, so cannot serve files.\n");
-                return 1;
-            }
-            case 500: {
-                fprintf(stderr, "[500] server encountered an error.\n");
-                return 1;
-            }
-            default: {
-                fprintf(stderr, "[%li] http error\n", http_code);
-                return 1;
-            }
-        }
-    }
 }
 
 static enum RetCode update_local_files(void) {
@@ -117,13 +49,42 @@ static enum RetCode update_local_files(void) {
     
     char fetch_url[2048] = {0}; 
     snprintf(fetch_url, sizeof(fetch_url), "%spkglist.shmdb", source);
-
-    initialize_curl();
-    curl_download(fetch_url, db_file);
-    cleanup_curl();
+    download_file(fetch_url, db_file);
 
     printf("successfully updated package database.\n");
     return SHM_SUCCESS;
+}
+
+static struct PkgArgInfo parse_args_for_pkgs(int argc, char **argv) {
+    struct PkgArgInfo pkgs = {0};
+    
+    for (int i = 2; i < argc; i++) {
+        if (argv[i][0] == '.' && argv[i][1] == '/') { //local file, so we should find it right here >.<
+            FILE *test_local_file = fopen(argv[i], "rb");
+            if (!test_local_file || argv[i][2] == '\0') { //if it just Ends too
+                fprintf(stderr, "!! could not find local file %s to install from.\n", argv[i]);
+                return pkgs;
+            }
+            fclose(test_local_file);
+
+            //ok, this file does exist~ let's add it to what we want to try to install
+            pkgs.local_packages = safe_alloc(pkgs.local_packages, sizeof(char *) * (pkgs.num_local + 1));
+            pkgs.local_packages[pkgs.num_local] = helio_strdup(argv[i]);
+            pkgs.num_local++;
+        } else { //this is something we should find in our db presumably~
+            pkgs.db_packages = safe_alloc(pkgs.db_packages, sizeof(char *) * (pkgs.num_db + 1));
+            pkgs.db_packages[pkgs.num_db] = helio_strdup(argv[i]);
+            pkgs.num_db++;
+        }
+    }
+
+    //all the packages are added here, so toss them over to parse/look in db for~
+    pkgs.local_packages = safe_alloc(pkgs.local_packages, sizeof(char *) * (pkgs.num_local + 1));
+    pkgs.local_packages[pkgs.num_local] = NULL; //also null terminate before sending them in :p
+    pkgs.db_packages = safe_alloc(pkgs.db_packages, sizeof(char *) * (pkgs.num_db + 1));
+    pkgs.db_packages[pkgs.num_db] = NULL;
+
+    return pkgs;
 }
 
 int main(int argc, char **argv) {
@@ -185,40 +146,15 @@ int main(int argc, char **argv) {
 
             if (argc >= 3) {
                 //we could have any number of args after this, for any number of packages >:3
-                char **local_packages = NULL;
-                char **db_packages = NULL;
-                unsigned int num_local = 0;
-                unsigned int num_db = 0;
-                for (int i = 2; i < argc; i++) {
-                    if (argv[i][0] == '.' && argv[i][1] == '/') { //local file, so we should find it right here >.<
-                        FILE *test_local_file = fopen(argv[i], "rb");
-                        if (!test_local_file) {
-                            fprintf(stderr, "!! could not find local file %s to install from.\n", argv[i]);
-                            return SHM_UNKNOWN_PACKAGE;
-                        }
-                        fclose(test_local_file);
-
-                        //ok, this file does exist~ let's add it to what we want to try to install
-                        local_packages = safe_alloc(local_packages, sizeof(char *) * (num_local + 1));
-                        local_packages[num_local] = strdup(argv[i]);
-                        num_local++;
-                    } else { //this is something we should find in our db presumably~
-                        db_packages = safe_alloc(db_packages, sizeof(char *) * (num_db + 1));
-                        db_packages[num_db] = strdup(argv[i]);
-                        num_db++;
-                    }
-                }
-
-                //all the packages are added here, so toss them over to parse/look in db for~
-                local_packages = safe_alloc(local_packages, sizeof(char *) * (num_local + 1));
-                local_packages[num_local] = NULL; //also null terminate before sending them in :p
-                db_packages = safe_alloc(db_packages, sizeof(char *) * (num_db + 1));
-                db_packages[num_db] = NULL;
-                
-                return install_provided_packages(local_packages, db_packages, force);
+                struct PkgArgInfo pkgs = parse_args_for_pkgs(argc, argv);
+                if (pkgs.num_db == 0 && pkgs.num_local == 0) return SHM_FILESYSTEM_ERROR;
+                return install_provided_packages(pkgs.local_packages, pkgs.db_packages, force);
             } else goto bad_args;
         } else if (strcmp(argv[1], "remove") == 0) {
-            
+            //kinda same thing with installation, we get what packages need to be removed and just take care of em boss~
+                struct PkgArgInfo pkgs = parse_args_for_pkgs(argc, argv);
+                if (pkgs.num_db == 0 && pkgs.num_local == 0) return SHM_FILESYSTEM_ERROR;
+                return delete_provided_packages(pkgs.local_packages, pkgs.db_packages);
         } else if (strcmp(argv[1], "gen-pkglist") == 0) { //takes in a folder fULL of shimas and makes a package list :D
             if (argc == 3) {
                 if (helio_dir_exists(argv[2])) {
@@ -232,8 +168,11 @@ int main(int argc, char **argv) {
             if (argc == 2) { //only "shima update" will trigger this :p
                 return update_local_files();
             } else goto bad_args;
-        } else if (strcmp(argv[1], "help") == 0) {
+        } else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "--h") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-help") == 0) {
             print_help();
+            return SHM_SUCCESS;
+        } else if (strcmp(argv[1], "version") == 0 || strcmp(argv[1], "--v") == 0 || strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-version") == 0) {
+            printf("shima package manager, version %s\n", VERSION);
             return SHM_SUCCESS;
         } else {
             fprintf(stderr, "unknown command provided.\n\nuse \"shima help\" for assistance.\n");

@@ -1,15 +1,29 @@
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200112L
+#endif
+
 #include "heliotrope.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#include <direct.h>
+#define MKDIR(dir) _mkdir(dir)
+#else
 #include <sys/stat.h>
+#include <unistd.h>
+#include <time.h>
+#include <utime.h>
 #include <fcntl.h>
 #include <dirent.h>
+#define MKDIR(dir) mkdir(dir, 0755);
+#endif
+
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <zlib.h>
 
 static uint16_t two_byte_to_int(const unsigned char byte_1, const unsigned char byte_2) {
@@ -207,7 +221,7 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
     //making output directory, additional directories inside must be made seperately~
     char *folder_name = NULL;
     if (create_extract_folder) {
-        folder_name = strdup(filename);
+        folder_name = helio_strdup(filename);
         int filename_offset = 0;
         if (folder_name[0] == '.' && folder_name[1] == '/') {
             //for purposes down the line, we'll make sure that there's no "./" in front~
@@ -222,7 +236,7 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
 
     char *folder_path = NULL;
     if (base_directory == NULL) {
-        folder_path = strdup(folder_name);
+        folder_path = helio_strdup(folder_name);
     } else {
         folder_path = helio_get_path(base_directory, folder_name);
     }
@@ -279,6 +293,7 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
         }
 
         //finally, we gotta restore the file modification time >_> ughhh
+#ifndef _WIN32        
         struct tm unix_time = {0}; //stupid ass struct that deals with unix time
 
         unix_time.tm_mday = dos_date & 0x1F;
@@ -289,11 +304,20 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
         unix_time.tm_hour = (dos_time >> 11) & 0x1F;
         unix_time.tm_isdst = -1; //is it daylight savings? figure it out bozo.
 
-        struct timespec time_struct[2];
-        time_struct[0].tv_nsec = UTIME_OMIT; //no access time idc
-        time_struct[1].tv_sec = mktime(&unix_time);
-        time_struct[1].tv_nsec = 0;
-        utimensat(AT_FDCWD, file_path, time_struct, AT_SYMLINK_NOFOLLOW);
+        //for older posix, we need to stat the file and then use That as the access time :p
+        struct stat file_stat;
+        time_t access_time = time(NULL); //just default jan 1 1970 if we cant access its not a big deal
+        if (stat(file_path, &file_stat) != 0) {
+            access_time = file_stat.st_atime;
+        }
+
+        //ok now can update our file time :3
+        struct utimbuf time_struct;
+        time_struct.actime = access_time; //no access time idc
+        time_struct.modtime = mktime(&unix_time);
+        utime(file_path, &time_struct);
+#elif
+#endif
 
         free(file_path);
 
@@ -374,7 +398,7 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
             files[num_files]->uncompressed_size = amt_read;
             files[num_files]->crc_uncompressed = crc32(0L, Z_NULL, 0);
             files[num_files]->crc_uncompressed = crc32(files[num_files]->crc_uncompressed, sym_buf, amt_read);
-            files[num_files]->compressed_data = (unsigned char *)strdup((char *)sym_buf);
+            files[num_files]->compressed_data = (unsigned char *)helio_strdup((char *)sym_buf);
             files[num_files]->method = 0x00; //store!!
         } else {
             FILE *file = fopen(file_path, "rb");
@@ -522,16 +546,6 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
     return HELIO_SUCCESS;
 }
 
-#ifdef _WIN32
-#include <windows.h>
-#include <direct.h>
-#define MKDIR(dir) _mkdir(dir)
-#else
-#include <sys/stat.h>
-#include <unistd.h>
-#define MKDIR(dir) mkdir(dir, 0755);
-#endif
-
 __attribute__((noreturn)) void memory_fail_exit(void) {
     fprintf(stderr, "memory allocation call failed, cannot continue execution >_<;;\n");
     fprintf(stderr, "something *seriously* wrong has had to happen to get here. your system is probably on fire.. my condolences\n");
@@ -558,8 +572,30 @@ void *safe_calloc(size_t num_elements, size_t element_size) {
     return return_ptr;
 }
 
+void del_strarr(char ***strarr) {
+    if (strarr == NULL || *strarr == NULL) return; //already nulled out yo >_<
+
+    for (char **cur_str = *strarr; *cur_str != NULL; cur_str++) {
+        free(*cur_str);
+        *cur_str = NULL;
+    }
+    free(*strarr);
+    *strarr = NULL;
+}
+
+//only defining this since we may not have strdup in POSIX-2001
+//and like... in windows lmfao
+char *helio_strdup(const char *string) {
+    size_t alloc_size = strlen(string) + 1; //take a WILD guess as to what the +1 is for. really.
+    char *dup_string = safe_calloc(1, alloc_size);
+
+    if (dup_string == NULL) return NULL;
+
+    return memcpy(dup_string, string, alloc_size); //return pointer~
+}
+
 void helio_mkdir(const char *dir_path) { //makes parent directories too :3
-    char *dir_copy = strdup(dir_path);  //make a copy we can modify
+    char *dir_copy = helio_strdup(dir_path);  //make a copy we can modify
     char *char_ptr = NULL;
     int mk_return = 0;
     if (dir_copy[strlen(dir_copy) - 1] == '/') { //we usually shouldn't get this with a slash at the end, but just in case~
@@ -661,7 +697,7 @@ char **helio_list_dir(const char *directory, bool recusrive) {
         }
         free(new_dir_path);
 
-        directory_entries[i] = strdup(entry->d_name);
+        directory_entries[i] = helio_strdup(entry->d_name);
         i++;
     }
 

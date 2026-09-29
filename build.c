@@ -30,7 +30,7 @@ static enum section get_section(const char *line) {
 }
 
 static char *prepare_extracted_string(char *line) {
-    char *prep_str = strdup(line);
+    char *prep_str = helio_strdup(line);
     int line_len = strlen(prep_str);
     prep_str[line_len - 1] = '\0';
     return prep_str;
@@ -50,7 +50,7 @@ void get_colon_parsed_string(const char *original, char **storage) {
         sub[copy_len - 2] = '\0';
     }
 
-    *storage = strdup(sub);
+    *storage = helio_strdup(sub);
 }
 
 struct Campsite *parse_campsite(FILE *campsite_file) {
@@ -101,7 +101,7 @@ struct Campsite *parse_campsite(FILE *campsite_file) {
                 //so basically, we just get one and we're out yo
                 camp->num_sources = 1; //static for now ofc =w=
                 camp->sources = safe_alloc(camp->sources, camp->num_sources * sizeof(char *));
-                camp->sources[0] = strdup(line);
+                camp->sources[0] = helio_strdup(line);
                 camp->sources[0][strlen(camp->sources[0]) - 1] = '\0'; //new line at the end of this~
                 break;
             }
@@ -200,7 +200,7 @@ enum RetCode build_package(FILE *campsite_file) {
         return SHM_EXTRACT_ERROR;
     }
 
-    char *new_folder_name = strdup(camp->sources[0]);
+    char *new_folder_name = helio_strdup(camp->sources[0]);
     new_folder_name[strrchr(new_folder_name, '.') - new_folder_name] = '\0';
     if (new_folder_name[0] == '.' && new_folder_name[1] == '/') { //this should be the case, you should make it like this but just in case not, its an if :p
         memmove(new_folder_name, new_folder_name + 2, strlen(new_folder_name) - 1);
