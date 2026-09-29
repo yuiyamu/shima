@@ -7,3 +7,22 @@ packages/
 # compiled objects
 *.o
 shima
+
+# autotools
+.deps/
+autom4te.cache/
+m4/
+aclocal.m4
+ar-lib
+compile
+config.guess
+config.log
+config.status
+config.sub
+configure
+depcomp
+install-sh
+libtool
+ltmain.sh
+Makefile.in
+missing
