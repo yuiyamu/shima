@@ -272,7 +272,7 @@ enum RetCode build_package(FILE *campsite_file) {
 
     enum HelioReturnCode compress_ret =  helio_compress(shima_folder, package_name, ".shm", false); //compressed, but now we want to add our metadata to the top >.<
     if (compress_ret != HELIO_SUCCESS) {
-        fprintf(stderr, "!! an error occured while creating package archive %s.shm.\n", package_name);
+        fprintf(stderr, "!! an error occured while creating package archive %s.shm (helio error: %s).\n", package_name, helio_error_to_string(compress_ret));
         free(shima_folder);
         dismantle_campsite(camp);
         return SHM_COMPRESS_ERROR;

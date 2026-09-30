@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include "build.h"
 #include "install.h"
 #include "net.h"
@@ -88,6 +89,8 @@ static struct PkgArgInfo parse_args_for_pkgs(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    signal(SIGPIPE, SIG_IGN); //ignore sigpipe globally, useful for network fuckery that also works on macos
+    
     if (argc <= 1) {
         printf("shima package manager, version %s\n\nuse \"shima help\" for more information.\n", VERSION);
         return 0;

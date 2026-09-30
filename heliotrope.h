@@ -33,6 +33,7 @@ char **helio_list_dir(const char *directory, bool recusrive);
 // (extract) leave base_directory NULL for ./ for
 enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_directory, bool create_extract_folder, bool remove_after_extract);
 enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *extension, bool verbose);
+char *helio_error_to_string(enum HelioReturnCode ret_code);
 
 void *safe_alloc(void *ptr, size_t bytes);
 void *safe_calloc(size_t num_elements, size_t element_size);

@@ -107,7 +107,7 @@ int download_file(char *fetch_url, FILE *output_file) {
         "Connection: close\r\n"
         "\r\n",
         path, domain);
-    send(sock_id, req, req_len, MSG_NOSIGNAL);
+    send(sock_id, req, req_len, 0);
 
     /* A SERVER IS TALKING. listen and learn */
     char buf[MAX_CHUNK];

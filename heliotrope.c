@@ -382,7 +382,10 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
 
         //before anything else, we must see if this file is actually a symlink, and not blindly follow it.
         struct stat file_stat;
-        if (lstat(file_path, &file_stat) == -1) return HELIO_FILE_NOT_EXIST;
+        if (lstat(file_path, &file_stat) == -1) {
+            fprintf(stderr, "  * warning: could not stat %s, skipping...\n", file_path);
+            continue;
+        }
         if (S_ISLNK(file_stat.st_mode)) {
             //now this gets rather interesting. this file is a symlink, meaning we just store (0) where the link goes to =w=
             unsigned char sym_buf[1024] = {0};
@@ -390,7 +393,10 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
             //bit unsafe, but it's an edge case to have 1024+ chars in a symlink
             
             ssize_t amt_read = readlink(file_path, (char *)sym_buf, sizeof(sym_buf) - 1);
-            if (amt_read == -1) return HELIO_FILE_INVALID;
+            if (amt_read == -1) {
+                fprintf(stderr, "  * warning: could not read symlink %s, skipping...\n", file_path);
+                continue;
+            }
             sym_buf[amt_read] = '\0'; //this needs manual null termination lol~
             
             //since we're just storing, we can set things like compressed and decompressed size rn
@@ -402,7 +408,10 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
             files[num_files]->method = 0x00; //store!!
         } else {
             FILE *file = fopen(file_path, "rb");
-            if (!file) return HELIO_FILE_NOT_EXIST;
+            if (!file) {
+                fprintf(stderr, "  * warning: could open file %s, skipping...\n", file_path);
+                continue;
+            }
 
             if (verbose) {
                 printf("  %s\n", file_path);
@@ -416,7 +425,8 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
 
             int deflate_ret = deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY);
             if (deflate_ret != Z_OK) {
-                return HELIO_DEFLATE_ERROR; //same here, not checking every error but its fine lowk.
+                fprintf(stderr, "  * warning: error while compressing %s, skipping...\n", file_path);
+                continue;
             }
 
             //also init crc32 calc. used for data verification ofc~
@@ -430,7 +440,8 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
                 files[num_files]->uncompressed_size += strm.avail_in;
                 if (ferror(file)) { //if we read 0 bytes and it's eof, いいじゃん。そうでなければ、いいじゃないよ
                     deflateEnd(&strm);
-                    return HELIO_FILE_INVALID;
+                    fprintf(stderr, "  * warning: error while compressing %s, skipping...\n", file_path);
+                    continue;
                 }
 
                 flush = feof(file)? Z_FINISH : Z_NO_FLUSH; //if it's eof, we say finish :D yay
@@ -440,7 +451,8 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
                     strm.next_out = output_buf;
                     int deflate_ret = deflate(&strm, flush);
                     if (deflate_ret == Z_STREAM_ERROR) {
-                        return HELIO_DEFLATE_ERROR;
+                        fprintf(stderr, "  * warning: error while compressing %s, skipping...\n", file_path);
+                        continue;
                     }
 
                     //write to total buffer now :D
@@ -468,7 +480,7 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
         int_to_four_bytes(strlen(dir_list[num_files]), local_header + 26); //file name len
 
         size_t written = fwrite(local_header, 1, 30, zip_file);
-        if (written != 30) return HELIO_FILESYSTEM_ERROR;
+        if (written != 30) return HELIO_FILESYSTEM_ERROR; //these are legit hare blocking errors that we'd like to Not just warn about =w=
 
         written = fwrite(dir_list[num_files], 1, strlen(dir_list[num_files]), zip_file);
         if (written != (unsigned long)strlen(dir_list[num_files])) return HELIO_FILESYSTEM_ERROR;
@@ -544,6 +556,29 @@ enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *ext
     fclose(zip_file);
 
     return HELIO_SUCCESS;
+}
+
+char *helio_error_to_string(enum HelioReturnCode ret_code) {
+    switch (ret_code) {
+        case HELIO_SUCCESS: {
+            return "success";
+        }
+        case HELIO_FILE_NOT_EXIST: {
+            return "provided file does not exist";
+        }
+        case HELIO_FILE_INVALID: {
+            return "provided file was invalid";
+        }
+        case HELIO_INVALID_COMPRESSION_METHOD: {
+            return "zip file uses an unsupported compression method";
+        }
+        case HELIO_DEFLATE_ERROR: {
+            return "error while uncompressing deflate stream";
+        }
+        case HELIO_FILESYSTEM_ERROR: {
+            return "unable to read/write to the filesystem";
+        }
+    }
 }
 
 __attribute__((noreturn)) void memory_fail_exit(void) {

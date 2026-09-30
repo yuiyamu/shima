@@ -11,6 +11,6 @@ shima_SOURCES = \
     net.c \
     net.h
 
+# we can assume that linking -lz will work, otherwise thats kinda on them 
 AM_CFLAGS = -Wextra -Wpedantic
-ACLOCAL_AMFLAGS = -I m4
 shima_LDFLAGS = -lz
