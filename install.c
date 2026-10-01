@@ -490,26 +490,10 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
     }
 
     /* cleanup */
-    for (int i = 0; local_packages[i] != NULL; i++) {
-        free(local_packages[i]);
-        local_packages[i] = NULL;
-    }
-    free(local_packages);
-    local_packages = NULL;
-
-    for (int i = 0; db_packages[i] != NULL; i++) {
-        free(db_packages[i]);
-        db_packages[i] = NULL;
-    }
-    free(db_packages);
-    db_packages = NULL;
-
-    for (int i = 0; pkgs_installed[i] != NULL; i++) {
-        free(pkgs_installed[i]);
-        pkgs_installed[i] = NULL;
-    }
-    free(pkgs_installed);
-    pkgs_installed = NULL;
+    helio_del_strarr(&local_packages);
+    helio_del_strarr(&db_packages);
+    helio_del_strarr(&pkgs_installed);
+    helio_del_strarr(&local_dir_ls);
 
     for (int i = 0; i < (int)num_packages; i++) {
         //if (packages[i]->pkg_name != NULL) free(packages[i]->pkg_name);
@@ -517,11 +501,6 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
         //if (packages[i]->pkg_location != NULL) free(packages[i]->pkg_location);
     }
     free(packages);
- 
-    for (int i = 0; local_dir_ls[i] != NULL; i++) {
-        free(local_dir_ls[i]);
-    }
-    free(local_dir_ls);
 
     if (num_packages > 0 && !canceled && !errors) {
         printf("successfully finished installing all packages.\n");
@@ -693,26 +672,9 @@ enum RetCode delete_provided_packages(char **local_packages, char **db_packages)
     }
 
     /* cleanup */
-    for (int i = 0; local_packages[i] != NULL; i++) {
-        free(local_packages[i]);
-        local_packages[i] = NULL;
-    }
-    free(local_packages);
-    local_packages = NULL;
-
-    for (int i = 0; db_packages[i] != NULL; i++) {
-        free(db_packages[i]);
-        db_packages[i] = NULL;
-    }
-    free(db_packages);
-    db_packages = NULL;
-
-    for (int i = 0; pkgs_installed[i] != NULL; i++) {
-        free(pkgs_installed[i]);
-        pkgs_installed[i] = NULL;
-    }
-    free(pkgs_installed);
-    pkgs_installed = NULL;
+    helio_del_strarr(&local_packages);
+    helio_del_strarr(&db_packages);
+    helio_del_strarr(&pkgs_installed);
 
     if (num_packages > 0 && !canceled && !errors) {
         printf("successfully finished removing all packages.\n");

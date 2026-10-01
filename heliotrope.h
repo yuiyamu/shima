@@ -38,7 +38,7 @@ char *helio_error_to_string(enum HelioReturnCode ret_code);
 
 void *safe_alloc(void *ptr, size_t bytes);
 void *safe_calloc(size_t num_elements, size_t element_size);
-void del_strarr(char ***strarr);
+void helio_del_strarr(char ***strarr);
 char *helio_strdup(const char *s);
 
 #endif

@@ -616,7 +616,7 @@ void *safe_calloc(size_t num_elements, size_t element_size) {
     return return_ptr;
 }
 
-void del_strarr(char ***strarr) {
+void helio_del_strarr(char ***strarr) {
     if (strarr == NULL || *strarr == NULL) return; //already nulled out yo >_<
 
     for (char **cur_str = *strarr; *cur_str != NULL; cur_str++) {
