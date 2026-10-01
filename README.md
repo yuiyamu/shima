@@ -2,6 +2,8 @@
 
 a simple package manager, built in C99 with POSIX-2001 compatibility
 
+![shima rin broken packages meme](https://yamu.yuru.ca/ljmr6cb3wjm.gif)
+
 ## compilation/installation
 
 shima only depends on [zlib](https://zlib.net/) (via [heliotrope](https://github.com/yuiyamu/heliotrope)), so it can pretty much be compiled in any environment that you can think of (that supports C99 and POSIX-2001 at a minimum). if you'd like to compile it yourself, simply download a release tarball, run `./configure` (or `./configure --enable-debug` for ASan support which is recommended during development), and run `make`.
