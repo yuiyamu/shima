@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include "main.h"
 #include "build.h"
 #include "net.h"
@@ -146,12 +147,16 @@ static void add_pkg_dependencies(char ***package_deps, char ***package_dep_versi
 
 
 //helper function to actually install each package~
-static int install_pkg(const unsigned int cur_pkg, const unsigned int total_pkg, char *pkg_name, char *pkg_location, char **posthooks) {
-    if (helio_extract(pkg_location, false, ROOT_DIR, false, false)) {
-        fprintf(stderr, "an error occured while extracting %s to the root directory. do you have root permissions?\n", pkg_name);
+static int install_pkg(const unsigned int cur_pkg, const unsigned int total_pkg, char *pkg_name, char *pkg_version, char *pkg_location, char **posthooks, FILE *install_list, bool is_dep) {
+    //i added a fuckass feature to heliotrope that actually comes in clutch for deletion for us lmao
+    char **installed_files = NULL;
+
+    enum HelioReturnCode extract_ret = helio_extract(pkg_location, false, ROOT_DIR, false, false, &installed_files);
+    if (extract_ret != HELIO_SUCCESS) {
+        fprintf(stderr, "error \"%s\" occured while extracting %s to the root directory.\n", helio_error_to_string(extract_ret), pkg_name);
         return 1;
     } else {
-        printf("[%u/%u] installed package %s\n", cur_pkg, total_pkg, pkg_name);
+        printf("[%u/%u] installed package %s-%s\n", cur_pkg, total_pkg, pkg_name, pkg_version);
 
         //now that we've installed the package, we can also run posthooks :0
         for (int i = 0; posthooks != NULL && posthooks[i] != NULL; i++) {
@@ -167,6 +172,26 @@ static int install_pkg(const unsigned int cur_pkg, const unsigned int total_pkg,
                 fprintf(stderr, "command returned with code %i.\n", ret_status);
             }
         }
+
+        char append_installed_list[256] = {0};
+        if (is_dep) {
+            snprintf(append_installed_list, 256, "%s: %s-%s (dependency)\n", pkg_name, pkg_name, pkg_version);
+        } else {
+            snprintf(append_installed_list, 256, "%s: %s-%s (selected)\n", pkg_name, pkg_name, pkg_version);
+        }
+        fwrite(append_installed_list, 1, strlen(append_installed_list), install_list);
+
+        //and finally, writing to the installed.list with all of our thingies >.<
+        for (int i = 0; installed_files[i] != NULL; i++) {
+            //its ok to spam fwrite bc it buffers actual writes~
+            fwrite(" ", 1, 1, install_list);
+            fwrite(ROOT_DIR, 1, strlen(ROOT_DIR), install_list);
+            fwrite(installed_files[i], 1, strlen(installed_files[i]), install_list);
+            fwrite("\n", 1, 1, install_list);
+            free(installed_files[i]);
+        }
+        free(installed_files);
+
         return 0;
     }
 }
@@ -340,6 +365,8 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
             for (int i = (int)num_initial_packages; i < (int)num_packages; i++) printf("%s ", packages[i]->pkg_name);
             printf("\n");
         }
+        
+        printf(" (this will be installed to your root directory, %s.)\n", ROOT_DIR); //MAKING ABSOLUTE SURE I DONT BRICK MY GLIBC AGAIN
 
         char response;
         do {
@@ -436,19 +463,8 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
             }
             for (int i = 0; error_finding_locations == false && i < (int)num_packages; i++) {
                 if (packages[i]->pkg_location != NULL) {
-                    int install_ret = install_pkg((unsigned int)i + 1, num_packages, packages[i]->pkg_name, packages[i]->pkg_location, packages[i]->post_install_hooks);
-
-                    if (install_ret == 0) {
-                        char append_installed_list[256] = {0};
-                        if (packages[i]->is_dep) {
-                            snprintf(append_installed_list, 256, "%s: %s-%s (dependency)\n", packages[i]->pkg_name, packages[i]->pkg_name, packages[i]->pkg_ver);
-                        } else {
-                            snprintf(append_installed_list, 256, "%s: %s-%s (selected)\n", packages[i]->pkg_name, packages[i]->pkg_name, packages[i]->pkg_ver);
-                        }
-                        fwrite(append_installed_list, 1, strlen(append_installed_list), install_list);
-                    } else {
-                        errors = true;
-                    }
+                    int install_ret = install_pkg((unsigned int)i + 1, num_packages, packages[i]->pkg_name, packages[i]->pkg_ver, packages[i]->pkg_location, packages[i]->post_install_hooks, install_list, packages[i]->is_dep);
+                    if (install_ret != 0) errors = true;
                 } else {
                     fprintf(stderr, "could not find a location to install %s from.\n", packages[i]->pkg_name);
                 }
@@ -525,10 +541,6 @@ enum RetCode delete_provided_packages(char **local_packages, char **db_packages)
     char **pkgs_installed = fetch_installed_packages();
     if (pkgs_installed == NULL) return SHM_FILESYSTEM_ERROR;
 
-    enum RetCode db_open_ret = SHM_SUCCESS;
-    FILE *db_file = open_db_file(&db_open_ret);
-    if (db_open_ret != SHM_SUCCESS) return db_open_ret;
-
     /* local */
     struct InstallPkg **packages = NULL;
     size_t num_packages = 0;
@@ -571,6 +583,115 @@ enum RetCode delete_provided_packages(char **local_packages, char **db_packages)
         num_packages++;
     }
 
+    /* removal time >:3 */
+    bool canceled = false;
+    bool errors = false;
+    if (num_packages > 0) {
+        printf("shima will remove the following package(s): ");
+        for (int i = 0; i < (int)num_packages; i++) printf("%s ", packages[i]->pkg_name);
+        printf("\n");
+
+        char response;
+        do {
+            printf("\nwould you like to continue with the removal? [Y/n] ");
+            scanf(" %c", &response);
+        } while (response != 'n' && response != 'y');
+
+        if (response == 'n') {
+            canceled = true;
+        } else {
+            //we need to also update the installed.list file. it def exists since we read it earlier :p
+            FILE *install_list = fopen("/etc/shima/installed.list", "r+");
+            if (!install_list) {
+                fprintf(stderr, "!! failed to open the installed.list! check if you have root permissions.\n");
+                return SHM_FILESYSTEM_ERROR;
+            }
+
+            for (int i = 0; i < (int)num_packages; i++) {
+                //all we need to do is just remove everything listed in install.list, then remove its entry :D
+                //posthooks aren't included here, but maybe in the future we could do post removal hooks :0
+
+                //make sure we go to the start of the db each time!! we could be anywhere
+                fseek(install_list, 0, SEEK_SET);
+
+                char line[1024] = {0};
+                size_t remove_start_pos = 0;
+                while (fgets(line, sizeof(line), install_list) != NULL) {
+                    if (strncmp(packages[i]->pkg_name, line, strlen(packages[i]->pkg_name)) == 0) {
+                        break; //found a match ^-^
+                    } else {
+                        remove_start_pos += strlen(line);
+                    }
+                }
+                
+                //we should have all the files here! just go until not ' ' first
+                char *prev_dir = NULL;
+                while (fgets(line, sizeof(line), install_list) != NULL) {
+                    if (line[0] != ' ') break;
+
+                    char *remove_file = line + 1;
+                    remove_file[strlen(remove_file) - 1] = '\0'; //ending '\n' no good
+                    int remove_ret = remove(remove_file);
+
+                    char *file_loc = strrchr(remove_file, '/');
+                    *file_loc = '\0';
+                    if (prev_dir == NULL || strcmp(prev_dir, remove_file) != 0) {
+                        if (prev_dir != NULL) {
+                            //attempt to remove directory, will only succeed if empty (das ok, it can fail)
+                            int remove_attempt = rmdir(prev_dir);
+                            while (remove_attempt == 0) { //could remove that, what about next dir up~?
+                                char *prev_loc = strrchr(prev_dir, '/');
+                                *prev_loc = '\0';
+                                remove_attempt = rmdir(prev_dir);
+                                //this doesn't nuke *everything*, but does a pretty good damn job at it methinks :p
+                            }
+                            free(prev_dir);
+                        } 
+                        prev_dir = helio_strdup(remove_file);
+                    }
+
+                    if (remove_ret != 0) {
+                        fprintf(stderr, "!! error while removing file %s: %s\n", remove_file, strerror(errno));
+                        errors = true;
+                    }
+                }
+
+                /* removal from installed.list */
+                if (!errors) { //success!! let's remove this package from the installed.list~
+                    fseek(install_list, remove_start_pos, SEEK_SET);
+                    
+                    //removing lines is actually quite complicated >.< let's find where this ends first
+                    fgets(line, sizeof(line), install_list); //first line will be the package line (no ' ' at start)
+                    size_t remove_ending_pos = remove_start_pos + strlen(line);
+                    while (fgets(line, sizeof(line), install_list) && line[0] == ' ') {
+                        remove_ending_pos += strlen(line); //start of next line~
+                    }
+
+                    //now, shift everything after upwards!! can deal with raw binary for this its בסדר
+                    unsigned char shift_buf[SHIFT_BUF_SIZE];
+                    long read_pos = remove_ending_pos;
+                    long write_pos = remove_start_pos;
+
+                    while (1) { //simpler to just to inf loop and break, tho a little jank imo lmao
+                        fseek(install_list, read_pos, SEEK_SET);
+                        size_t amt_read = fread(shift_buf, 1, SHIFT_BUF_SIZE, install_list);
+                        if (amt_read == 0) break;
+                        
+                        fseek(install_list, write_pos, SEEK_SET);
+                        fwrite(shift_buf, 1, amt_read, install_list);
+                        
+                        read_pos += amt_read;
+                        write_pos += amt_read;
+                    }
+
+                    //finally =w= delete da tail
+                    fflush(install_list);
+                    ftruncate(fileno(install_list), write_pos);
+                }
+            }
+        }
+    }
+
     /* cleanup */
     for (int i = 0; local_packages[i] != NULL; i++) {
         free(local_packages[i]);
@@ -592,6 +713,14 @@ enum RetCode delete_provided_packages(char **local_packages, char **db_packages)
     }
     free(pkgs_installed);
     pkgs_installed = NULL;
+
+    if (num_packages > 0 && !canceled && !errors) {
+        printf("successfully finished removing all packages.\n");
+    } else if (errors) {
+        fprintf(stderr, "package removal completed with errors.\n");
+    } else {
+        printf("nothing to remove, exiting shima.\n");
+    }
 
     return SHM_SUCCESS;
 }

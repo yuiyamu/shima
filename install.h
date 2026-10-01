@@ -6,6 +6,9 @@
 #include "main.h"
 #include "build.h"
 
+//used when rewriting install.list
+#define SHIFT_BUF_SIZE 32768
+
 struct InstallPkg {
     char *pkg_name;
     char *pkg_ver;

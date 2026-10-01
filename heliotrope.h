@@ -31,7 +31,8 @@ char *helio_get_path(const char *prev_dir, const char *name);
 char **helio_list_dir(const char *directory, bool recusrive);
 
 // (extract) leave base_directory NULL for ./ for
-enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_directory, bool create_extract_folder, bool remove_after_extract);
+//also files extracted can be left NULL to completely ignore it
+enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_directory, bool create_extract_folder, bool remove_after_extract, char ***files_extracted);
 enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *extension, bool verbose);
 char *helio_error_to_string(enum HelioReturnCode ret_code);
 

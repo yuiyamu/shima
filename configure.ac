@@ -9,7 +9,7 @@ LT_INIT
 
 CFLAGS="$CFLAGS -std=gnu99"
 if test "x$enable_debug" = "xyes"; then
-    CFLAGS="$CFLAGS -O2 -g -std -fsanitize=address"
+    CFLAGS="$CFLAGS -O2 -g -fsanitize=address"
 else
     CFLAGS="$CFLAGS -O0 -g"
 fi

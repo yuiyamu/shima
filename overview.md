@@ -57,10 +57,6 @@ nano
   version: 9.2-shm0
   desc: easy to use text editor, designed to replace pico as part of the GNU free software project
   md5sum: LATER OKAY >_>
-  file_list:
-    meow
-    meow/meow
-    meow/meow.meow
   deps:
     ncurses-6.6-shm0
 

@@ -193,7 +193,7 @@ enum RetCode build_package(FILE *campsite_file) {
     /* source extraction and build */
     //the first source should always be our zip file, so.. just invoke helio Lol
     printf("extracting main source package %s...\n", camp->sources[0]);
-    enum HelioReturnCode helio_return = helio_extract(camp->sources[0], false, NULL, true, false);
+    enum HelioReturnCode helio_return = helio_extract(camp->sources[0], false, NULL, true, false, NULL);
     if (helio_return != HELIO_SUCCESS) {
         fprintf(stderr, "!! error while extracting %s.\n", camp->sources[0]);
         dismantle_campsite(camp);
