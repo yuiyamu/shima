@@ -9,9 +9,9 @@ LT_INIT
 
 CFLAGS="$CFLAGS -std=gnu99"
 if test "x$enable_debug" = "xyes"; then
-    CFLAGS="$CFLAGS -O2 -g -fsanitize=address"
+    CFLAGS="$CFLAGS -O0 -g -fsanitize=address"
 else
-    CFLAGS="$CFLAGS -O0 -g"
+    CFLAGS="$CFLAGS -O2 -g"
 fi
 
 AC_ARG_ENABLE([debug], AS_HELP_STRING([--enable-debug], [build with debug flags >w<!!]), [], [enable_debug=no])

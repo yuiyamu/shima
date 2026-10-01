@@ -245,8 +245,10 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
 
     //each file has its own little central directory >_<!! we need to get all the values we want from her~
     size_t offset = 0;
-    if (files_extracted != NULL) *files_extracted = safe_calloc(num_files + 1, sizeof(char *));
-    (*files_extracted)[num_files] = NULL; //already can null term~
+    if (files_extracted != NULL) {
+        *files_extracted = safe_calloc(num_files + 1, sizeof(char *));
+        (*files_extracted)[num_files] = NULL; //already can null term~
+    }
     for (int i = 0; i < num_files; i++) {
         //lowkey wont bother with crc32. if its corrupt its corrupt bro LOL
         uint16_t dos_time = two_byte_to_int(central_directory[12 + offset], central_directory[13 + offset]);
@@ -266,7 +268,7 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
         if (verbose) {
             printf("  %s/%s\n", folder_path, filename);
         }
-        if (*files_extracted != NULL) {
+        if (files_extracted != NULL) {
             (*files_extracted)[i] = helio_strdup(filename);
         }
 
