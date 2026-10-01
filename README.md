@@ -14,7 +14,9 @@ if you'd like to install shima system wide, all you need to do is place the bina
 
 which you can do with:
 
-> `sudo mkdir -p /etc/shima && sudo echo "http://pkg.yuru.ca/shima/x86_64/" >> /etc/shima/sources.list && sudo touch /etc/shima/installed.list` 
+```
+sudo mkdir -p /etc/shima && sudo echo "http://pkg.yuru.ca/shima/x86_64/" >> /etc/shima/sources.list && sudo touch /etc/shima/installed.list
+```
 
 after which, you can run `sudo shima update` to populate the package list.
 
@@ -28,28 +30,30 @@ with that warning out of the way, using shima is quite simple as an end user. `s
 
 where it gets a little more complicated is if you'd like to make your own packages for shima. shima uses `.campsite` files to define many things about each package, like its name, version, compilation steps, and post-install commands to run. check out the prebuilt `.campsite` files on the `pkg.yuru.ca` server, or follow this example on how to create a basic `.campsite` file:
 
-> campsite v0.1
->
-> = info =
-> name: package
-> desc: a nice little package
-> pkgver: 1.0-shm0
->
-> = sources =
-> ./package-1.0.zip
->
-> = depends =
-> dependency-6.7-shm0
-> \# we can also add comments in here!
-> 
-> = prepare =
-> !~!shima
-> ./configure --prefix=/usr
-> make -j$(nproc)
-> make install DESTDIR=\$(pwd)/shima
->
-> = post-install =
-> echo "hello :D"
+```
+campsite v0.1
+
+= info =
+name: package
+desc: a nice little package
+pkgver: 1.0-shm0
+
+= sources =
+./package-1.0.zip
+
+= depends =
+dependency-6.7-shm0
+# we can also add comments in here!
+
+= prepare =
+!~!shima
+./configure --prefix=/usr
+make -j$(nproc)
+make install DESTDIR=\$(pwd)/shima
+
+= post-install =
+echo "hello :D"
+```
 
 ## licensing
 
