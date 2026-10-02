@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include "heliotrope.h"
+#include "helpers.h"
 #include "build.h"
 
 #ifndef MAX_CHUNK

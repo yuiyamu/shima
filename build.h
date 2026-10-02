@@ -3,9 +3,12 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "main.h"
 
 struct Campsite {
+    bool is_partial;
+
     char *pkg_name;
     char *pkg_desc;
     char *pkg_ver;
@@ -20,7 +23,8 @@ struct Campsite {
     uint8_t num_post_steps;
 };
 
-void get_colon_parsed_string(const char *original, char **storage); //also used in install.c :p
+struct Campsite *parse_campsite(FILE *campsite_file);
+void dismantle_campsite(struct Campsite *camp);
 
 enum RetCode build_package(FILE *campsite_file);
 enum RetCode gen_packagelist(char *shima_folder);

@@ -1,5 +1,9 @@
 #include "main.h"
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,22 +13,24 @@
 #include "install.h"
 #include "net.h"
 #include "heliotrope.h"
+#include "helpers.h"
 
 static void print_help(void) {
     printf("shima package manager, version %s\n\n", VERSION);
-    printf("build [file/folder]       builds a package (or folder of packages) with the specified path to a campsite file\n");
     printf("install [name/file]       installs package(s) with the name (searches local db) or a local file\n");
-    printf("force-install [name/file] forces a reinstall, even if you already have the package installed\n");
     printf("remove [name]             removes the named package(s) if it's installed on the system\n");
     printf("update                    pulls the latest package list from your configured server\n");
-    printf("gen-pkglist [folder]      generates a pkglist.shmdb for a folder of campsites (useful for making repos)\n");
+    printf("info [name/file]          gives you information about package(s) such as version info or description\n");
     printf("help                      prints this message~\n");
+    printf("\n-- developer options --\n");
+    printf("build [file/folder]       builds a package (or folder of packages) with the specified path to a campsite file\n");
+    printf("gen-pkglist [folder]      generates a pkglist.shmdb for a folder of campsites (useful for making repos)\n");
+    printf("force-install [name/file] forces a reinstall, even if you already have the package installed. not recommended to use.\n");
 }
 
 static enum RetCode update_local_files(void) {
     //ok! first we open up our pkglist, get our server url, and then just fetch with da fetcher
-    char pkglist_path[] = "/etc/shima/pkglist.shmdb";
-    FILE *db_file = fopen(pkglist_path, "wb");
+    FILE *db_file = fopen("/etc/shima/pkglist.shmdb", "wb");
     if (!db_file) {
         fprintf(stderr, "!! failed to open the local file database! check if you have root permissions.\n");
         return SHM_FILESYSTEM_ERROR;
@@ -63,7 +69,7 @@ static struct PkgArgInfo parse_args_for_pkgs(int argc, char **argv) {
         if (argv[i][0] == '.' && argv[i][1] == '/') { //local file, so we should find it right here >.<
             FILE *test_local_file = fopen(argv[i], "rb");
             if (!test_local_file || argv[i][2] == '\0') { //if it just Ends too
-                fprintf(stderr, "!! could not find local file %s to install from.\n", argv[i]);
+                fprintf(stderr, "!! could not find local package %s.\n", argv[i]);
                 return pkgs;
             }
             fclose(test_local_file);
@@ -86,6 +92,85 @@ static struct PkgArgInfo parse_args_for_pkgs(int argc, char **argv) {
     pkgs.db_packages[pkgs.num_db] = NULL;
 
     return pkgs;
+}
+
+static void print_pkg_info(FILE *db_file, char *pkg_name) {
+    char *version = NULL;
+    char *description = NULL;
+
+    char line[2048] = {0};
+    fgets(line, sizeof(line), db_file);
+    get_colon_parsed_string(line, &version);
+    fgets(line, sizeof(line), db_file);
+    get_colon_parsed_string(line, &description);
+
+    printf("%s (v%s): %s\n", pkg_name, version, description);
+    printf("  depends on:");
+
+    fgets(line, sizeof(line), db_file); //line is "deps:" here, need to get rid of it
+    bool has_deps = false;
+    while (fgets(line, sizeof(line), db_file) != NULL && line[0] == ' ') {
+        line[strlen(line) - 1] = '\0';
+        printf(" %s", line + 4);
+        fflush(stdout);
+        has_deps = true;
+    }
+
+    if (!has_deps) {
+        printf(" nothing!\n");
+    } else {
+        printf("\n");
+    }
+
+    free(version);
+    free(description);
+}
+
+static enum RetCode search_packages_for_info(char **local_packages, char **db_packages) {
+    FILE *db_file = fopen("/etc/shima/pkglist.shmdb", "r");
+    if (!db_file) {
+        fprintf(stderr, "!! failed to open the local file database! check if you have root permissions.\n");
+        return SHM_FILESYSTEM_ERROR;
+    }
+
+    char line[2048] = {0};
+    for (int i = 0; db_packages[i] != NULL; i++) {
+        char *matching_line = NULL;
+        move_to_matching_string(db_packages[i], db_file, &matching_line);
+        if (matching_line == NULL || strlen(matching_line) == 0) {
+            fprintf(stderr, "unable to find information about %s.\n", db_packages[i]);
+            continue;
+        }
+        matching_line[strlen(matching_line) - 1] = '\0'; //since we get a new line at the end
+        
+        print_pkg_info(db_file, matching_line);
+        free(matching_line);
+    }
+
+    //tad more complex, we have to parse this to find the name >.<
+    for (int i = 0; local_packages[i] != NULL; i++) {
+        struct Campsite *cur_pkg_info = parse_shm_pkg(local_packages[i]);
+        if (cur_pkg_info == NULL || cur_pkg_info->pkg_name == NULL) {
+            fprintf(stderr, "unable to parse package %s.\n", local_packages[i]);
+            continue;
+        }
+
+        char *matching_line = NULL;
+        move_to_matching_string(cur_pkg_info->pkg_name, db_file, &matching_line);
+        if (matching_line == NULL || strlen(matching_line) == 0) {
+            fprintf(stderr, "unable to find information about %s.\n", db_packages[i]);
+            continue;
+        }
+
+        print_pkg_info(db_file, cur_pkg_info->pkg_name);
+        dismantle_campsite(cur_pkg_info);
+        free(matching_line);
+    }
+
+    free_strarr(&local_packages, 0);
+    free_strarr(&db_packages, 0);
+
+    return SHM_SUCCESS;
 }
 
 int main(int argc, char **argv) {
@@ -150,14 +235,18 @@ int main(int argc, char **argv) {
             if (argc >= 3) {
                 //we could have any number of args after this, for any number of packages >:3
                 struct PkgArgInfo pkgs = parse_args_for_pkgs(argc, argv);
-                if (pkgs.num_db == 0 && pkgs.num_local == 0) return SHM_FILESYSTEM_ERROR;
+                if (pkgs.num_db == 0 && pkgs.num_local == 0) goto no_packages;
                 return install_provided_packages(pkgs.local_packages, pkgs.db_packages, force);
             } else goto bad_args;
         } else if (strcmp(argv[1], "remove") == 0) {
             //kinda same thing with installation, we get what packages need to be removed and just take care of em boss~
-                struct PkgArgInfo pkgs = parse_args_for_pkgs(argc, argv);
-                if (pkgs.num_db == 0 && pkgs.num_local == 0) return SHM_FILESYSTEM_ERROR;
-                return delete_provided_packages(pkgs.local_packages, pkgs.db_packages);
+            struct PkgArgInfo pkgs = parse_args_for_pkgs(argc, argv);
+            if (pkgs.num_db == 0 && pkgs.num_local == 0) goto no_packages;
+            return delete_provided_packages(pkgs.local_packages, pkgs.db_packages);
+        } else if (strcmp(argv[1], "info") == 0) {
+            struct PkgArgInfo pkgs = parse_args_for_pkgs(argc, argv);
+            if (pkgs.num_db == 0 && pkgs.num_local == 0) goto no_packages;
+            return search_packages_for_info(pkgs.local_packages, pkgs.db_packages);
         } else if (strcmp(argv[1], "gen-pkglist") == 0) { //takes in a folder fULL of shimas and makes a package list :D
             if (argc == 3) {
                 if (helio_dir_exists(argv[2])) {
@@ -187,5 +276,9 @@ int main(int argc, char **argv) {
 
     bad_args:
         fprintf(stderr, "bad arguments provided.\n\nuse \"shima help\" for assistance.\n");
+        return SHM_BAD_ARGS;
+    
+    no_packages:
+        fprintf(stderr, "no valid packages were found in your listed arguments.\n");
         return SHM_BAD_ARGS;
 }

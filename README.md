@@ -11,13 +11,13 @@ shima only depends on [zlib](https://zlib.net/) (via [heliotrope](https://github
 if you'd like to install shima system wide, all you need to do is place the binary (which can also be downloaded for various platforms) in `/usr/bin`, and create the following files/directories:
 
 - `/etc/shima`
-- `/etc/shima/sources.list`, putting `http://pkg.yuru.ca/shima/x86_64/` inside (switch to whatever non-x86 platform you may be using)
+- `/etc/shima/sources.list`, putting `http://pkg.yuru.ca/shima/x86_64-linux-modern"` inside (which can be changed to whatever platform you may be using)
 - `/etc/shima/installed.list`
 
 which you can do with:
 
 ```
-sudo mkdir -p /etc/shima && sudo echo "http://pkg.yuru.ca/shima/x86_64/" >> /etc/shima/sources.list && sudo touch /etc/shima/installed.list
+sudo mkdir -p /etc/shima && sudo echo "http://pkg.yuru.ca/shima/x86_64-linux-modern/" >> /etc/shima/sources.list && sudo touch /etc/shima/installed.list
 ```
 
 after which, you can run `sudo shima update` to populate the package list.

@@ -1,5 +1,6 @@
-AC_INIT([shima], [0.1.0])
+AC_INIT([shima], [0.1.0], [yuiyamuki@gmail.com], [shima], [https://github.com/yuiyamu/shima])
 AM_INIT_AUTOMAKE([-Wall foreign])
+AC_CONFIG_HEADERS([config.h])
 AC_CANONICAL_HOST
 
 AC_USE_SYSTEM_EXTENSIONS

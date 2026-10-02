@@ -9,22 +9,9 @@
 #include "build.h"
 #include "net.h"
 #include "heliotrope.h"
+#include "helpers.h"
 
-//also stole this one from yuiedit :p
-//might wanna make this one a little safer tho, not checking fread return >_<!! TODO
-char *read_str_with_len(FILE *db_file) { //same thing as above, with frwite tho~
-    uint8_t str_len;
-    char *new_string;
-
-    fread(&str_len, 1, 1, db_file);
-    new_string = safe_alloc(NULL, str_len + 1);
-    fread(new_string, str_len, 1, db_file); //now we can read the string safely~
-    new_string[str_len] = '\0';
-
-    return new_string;
-}
-
-struct Campsite *parse_shima_package(char *file_path) {
+struct Campsite *parse_shm_pkg(char *file_path) {
     FILE *pkg_file = fopen(file_path, "rb");
     if (!pkg_file) return NULL;
 
@@ -36,25 +23,26 @@ struct Campsite *parse_shima_package(char *file_path) {
     }
 
     //valid package, let's parse~
-    struct Campsite *package = safe_calloc(1, sizeof(struct Campsite));
-    package->pkg_name = read_str_with_len(pkg_file);
-    package->pkg_ver = read_str_with_len(pkg_file);
-    package->post_install_steps = NULL;
+    struct Campsite *camp = safe_calloc(1, sizeof(struct Campsite));
+    camp->pkg_name = read_str_with_len(pkg_file);
+    camp->pkg_ver = read_str_with_len(pkg_file);
+    camp->post_install_steps = NULL;
+    camp->is_partial = true;
     
     uint8_t num_post_steps = 0;
     fread(&num_post_steps, 1, 1, pkg_file);
-    package->post_install_steps = safe_calloc(1, sizeof(char *) * (num_post_steps + 1));
-    package->post_install_steps[num_post_steps] = NULL; //can already null term here :p
+    camp->post_install_steps = safe_calloc(1, sizeof(char *) * (num_post_steps + 1));
+    camp->post_install_steps[num_post_steps] = NULL; //can already null term here :p
     for (int i = 0; i < (int)num_post_steps; i++) {
-        package->post_install_steps[i] = read_str_with_len(pkg_file);
+        camp->post_install_steps[i] = read_str_with_len(pkg_file);
     }
     
     fclose(pkg_file);
 
-    return package;
+    return camp;
 }
 
-static char **fetch_installed_packages(void) {
+char **fetch_installed_packages(void) {
     //assuming installed packages are always in /etc/shima/installed.list
     FILE *db_file = fopen("/etc/shima/installed.list", "rb");
     if (!db_file) {
@@ -81,17 +69,49 @@ static char **fetch_installed_packages(void) {
     return installed_packages;
 }
 
+bool is_pkg_already_installed(char **pkgs_installed, char *cur_pkg_name) {
+    //ok, so valid package~ do we have it installed already? we're not dealing with versioning right now...
+    bool skip_package = false;
+    for (int j = 0; pkgs_installed[j] != NULL; j++) {
+        if (strncmp(cur_pkg_name, pkgs_installed[j], strlen(cur_pkg_name)) == 0) {
+            skip_package = true;
+            break;
+        }
+    }
+
+    return skip_package;
+}
+
+FILE *open_db_file(enum RetCode *error_code) {
+    //assuming db is always in /etc/shima/pkglist.shmdb
+    FILE *db_file = fopen("/etc/shima/pkglist.shmdb", "rb");
+    if (!db_file) {
+        fprintf(stderr, "!! could not open db file, meaning it likely does not exist! run \"shima update\" to get the latest database information.\n");
+        *error_code = SHM_FILESYSTEM_ERROR;
+        return NULL;
+    }
+
+    size_t header_length = strlen(DB_HEADER);
+    char *header_check = safe_calloc(1, header_length);
+    size_t amt_read = fread(header_check, 1, header_length, db_file);
+    if (amt_read != header_length || memcmp(header_check, DB_HEADER, header_length) != 0) {
+        fclose(db_file);
+        free(header_check);
+        fprintf(stderr, "!! db file seems to be corrupt. run \"shima update\" to get the latest database information.\n");
+        *error_code = SHM_CORRUPT_DB;
+        return NULL;
+
+    }
+    free(header_check);
+
+    return db_file;
+}
+
+/* installation/deletion functions :3 */
 //should recursively call itself for each new package to find deps :p
 static void add_pkg_dependencies(char ***package_deps, char ***package_dep_versions, char *cur_pkg_name, FILE *db_file, char **pkgs_installed) {
-    //make sure we go to the start of the db each time!! we could be anywhere
-    fseek(db_file, 0, SEEK_SET);
-
     char line[2048] = {0};
-    while (fgets(line, sizeof(line), db_file) != NULL) {
-        //this should skip all lines but the starting ones we need, so we can loop through the packages we want now~
-        if (line[0] == '#' || line[0] == '\n' || line[0] == ' ') continue;
-        if (strncmp(cur_pkg_name, line, strlen(cur_pkg_name)) == 0) break; //found a match, let's check the deps :p 
-    }
+    move_to_matching_string(cur_pkg_name, db_file, NULL);
 
     size_t num_deps = 0;
     for (int i = 0; i < 3; i++) fgets(line, sizeof(line), db_file); //just want to get to where the actual deps are :p
@@ -145,15 +165,14 @@ static void add_pkg_dependencies(char ***package_deps, char ***package_dep_versi
     }
 }
 
-
-//helper function to actually install each package~
+//helper to deal with the actual installation of packages
 static int install_pkg(const unsigned int cur_pkg, const unsigned int total_pkg, char *pkg_name, char *pkg_version, char *pkg_location, char **posthooks, FILE *install_list, bool is_dep) {
     //i added a fuckass feature to heliotrope that actually comes in clutch for deletion for us lmao
     char **installed_files = NULL;
 
     enum HelioReturnCode extract_ret = helio_extract(pkg_location, false, ROOT_DIR, false, false, &installed_files);
     if (extract_ret != HELIO_SUCCESS) {
-        fprintf(stderr, "error \"%s\" occured while extracting %s to the root directory.\n", helio_error_to_string(extract_ret), pkg_name);
+        fprintf(stderr, "!! an error  (%s) occured while extracting %s to the root directory.\n", helio_error_to_string(extract_ret), pkg_name);
         return 1;
     } else {
         printf("[%u/%u] installed package %s-%s\n", cur_pkg, total_pkg, pkg_name, pkg_version);
@@ -196,44 +215,6 @@ static int install_pkg(const unsigned int cur_pkg, const unsigned int total_pkg,
     }
 }
 
-static bool is_pkg_already_installed(char **pkgs_installed, char *cur_pkg_name) {
-    //ok, so valid package~ do we have it installed already? we're not dealing with versioning right now...
-    bool skip_package = false;
-    for (int j = 0; pkgs_installed[j] != NULL; j++) {
-        if (strncmp(cur_pkg_name, pkgs_installed[j], strlen(cur_pkg_name)) == 0) {
-            skip_package = true;
-            break;
-        }
-    }
-
-    return skip_package;
-}
-
-FILE *open_db_file(enum RetCode *error_code) {
-    //assuming db is always in /etc/shima/pkglist.shmdb
-    FILE *db_file = fopen("/etc/shima/pkglist.shmdb", "rb");
-    if (!db_file) {
-        fprintf(stderr, "!! could not open db file, meaning it likely does not exist! run \"shima update\" to get the latest database information.\n");
-        *error_code = SHM_FILESYSTEM_ERROR;
-        return NULL;
-    }
-
-    size_t header_length = strlen(DB_HEADER);
-    char *header_check = safe_calloc(1, header_length);
-    size_t amt_read = fread(header_check, 1, header_length, db_file);
-    if (amt_read != header_length || memcmp(header_check, DB_HEADER, header_length) != 0) {
-        fclose(db_file);
-        free(header_check);
-        fprintf(stderr, "!! db file seems to be corrupt. run \"shima update\" to get the latest database information.\n");
-        *error_code = SHM_CORRUPT_DB;
-        return NULL;
-
-    }
-    free(header_check);
-
-    return db_file;
-}
-
 enum RetCode install_provided_packages(char **local_packages, char **db_packages, bool force) {
     //local packages are easier to validate, so let's check that first :p
     //in case deps are also local, we need to see if other .shm exist in the same folder >.<
@@ -253,7 +234,7 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
     struct InstallPkg **packages = NULL;
     size_t num_packages = 0;
     for (int i = 0; local_packages[i] != NULL; i++) {
-        struct Campsite *cur_pkg = parse_shima_package(local_packages[i]);
+        struct Campsite *cur_pkg = parse_shm_pkg(local_packages[i]);
         if (cur_pkg == NULL) {
             fprintf(stderr, "package %s could not be parsed.\n", local_packages[i]);
         }
@@ -291,14 +272,8 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
 
         //let's go digging in da db for each >_< similar to how we add deps in a sec
         //make sure we go to the start of the db each time!! we could be anywhere
-        fseek(db_file, 0, SEEK_SET);
-    
         char line[2048] = {0};
-        while (fgets(line, sizeof(line), db_file) != NULL) {
-            //this should skip all lines but the starting ones we need, so we can loop through the packages we want now~
-            if (line[0] == '#' || line[0] == '\n' || line[0] == ' ') continue;
-            if (strncmp(db_packages[i], line, strlen(db_packages[i])) == 0) break; //found a match!! let's look at the info for this package
-        }
+        move_to_matching_string(db_packages[i], db_file, NULL);
 
         //this next line should be the version! thats kinda all we need for this pass~ :3
         fgets(line, sizeof(line), db_file);
@@ -417,7 +392,7 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
                             if (file_ext != NULL && strncmp(file_ext, ".shm", 4) == 0 && strlen(file_ext) == (size_t)4) { //last one prevents .shmdb :p
                                 local_shima_pkgs = safe_alloc(local_shima_pkgs, sizeof(struct Campsite *) * (num_local + 2));
                                 campsite_file_num = safe_alloc(campsite_file_num, sizeof(int) * (num_local + 1));
-                                local_shima_pkgs[num_local] = parse_shima_package(local_dir_ls[j]);
+                                local_shima_pkgs[num_local] = parse_shm_pkg(local_dir_ls[j]);
                                 local_shima_pkgs[num_local + 1] = NULL;
                                 campsite_file_num[num_local] = j;
                                 num_local++;
@@ -476,13 +451,7 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
             //gotta cleanup local shima~
             if (local_shima_pkgs != NULL) {
                 for (int i = 0; local_shima_pkgs[i] != NULL; i++) {
-                    for (int j = 0; j < local_shima_pkgs[i]->num_post_steps; j++) {
-                        free(local_shima_pkgs[i]->post_install_steps[j]);
-                    }
-                    free(local_shima_pkgs[i]->post_install_steps);
-                    free(local_shima_pkgs[i]->pkg_name);
-                    free(local_shima_pkgs[i]->pkg_ver);
-                    free(local_shima_pkgs[i]);
+                    dismantle_campsite(local_shima_pkgs[i]);
                 }
                 free(local_shima_pkgs);
             }
@@ -490,10 +459,10 @@ enum RetCode install_provided_packages(char **local_packages, char **db_packages
     }
 
     /* cleanup */
-    helio_del_strarr(&local_packages);
-    helio_del_strarr(&db_packages);
-    helio_del_strarr(&pkgs_installed);
-    helio_del_strarr(&local_dir_ls);
+    free_strarr(&local_packages, 0);
+    free_strarr(&db_packages, 0);
+    free_strarr(&pkgs_installed, 0);
+    free_strarr(&local_dir_ls, 0);
 
     for (int i = 0; i < (int)num_packages; i++) {
         //if (packages[i]->pkg_name != NULL) free(packages[i]->pkg_name);
@@ -524,7 +493,7 @@ enum RetCode delete_provided_packages(char **local_packages, char **db_packages)
     struct InstallPkg **packages = NULL;
     size_t num_packages = 0;
     for (int i = 0; local_packages[i] != NULL; i++) {
-        struct Campsite *cur_pkg = parse_shima_package(local_packages[i]);
+        struct Campsite *cur_pkg = parse_shm_pkg(local_packages[i]);
         if (cur_pkg == NULL) {
             fprintf(stderr, "package %s could not be parsed.\n", local_packages[i]);
         }
@@ -672,9 +641,9 @@ enum RetCode delete_provided_packages(char **local_packages, char **db_packages)
     }
 
     /* cleanup */
-    helio_del_strarr(&local_packages);
-    helio_del_strarr(&db_packages);
-    helio_del_strarr(&pkgs_installed);
+    free_strarr(&local_packages, 0);
+    free_strarr(&db_packages, 0);
+    free_strarr(&pkgs_installed, 0);
 
     if (num_packages > 0 && !canceled && !errors) {
         printf("successfully finished removing all packages.\n");

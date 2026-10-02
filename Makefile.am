@@ -9,7 +9,9 @@ shima_SOURCES = \
     heliotrope.c \
     heliotrope.h \
     net.c \
-    net.h
+    net.h \
+    helpers.c \
+    helpers.h
 
 # we can assume that linking -lz will work, otherwise thats kinda on them 
 AM_CFLAGS = -Wextra

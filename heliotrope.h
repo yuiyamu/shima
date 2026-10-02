@@ -36,9 +36,9 @@ enum HelioReturnCode helio_extract(char *filename, bool verbose, char *base_dire
 enum HelioReturnCode helio_compress(char *folder_path, char *filename, char *extension, bool verbose);
 char *helio_error_to_string(enum HelioReturnCode ret_code);
 
+//technically also part of helio api, little helpers that can be used :3
 void *safe_alloc(void *ptr, size_t bytes);
 void *safe_calloc(size_t num_elements, size_t element_size);
-void helio_del_strarr(char ***strarr);
 char *helio_strdup(const char *s);
 
 #endif

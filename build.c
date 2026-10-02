@@ -8,6 +8,7 @@
 #include "main.h"
 #include "install.h"
 #include "heliotrope.h"
+#include "helpers.h"
 
 enum section {
     NONE,
@@ -27,30 +28,6 @@ static enum section get_section(const char *line) {
     else if (strncmp(line, "= post-install =", strlen("= post-install =")) == 0) section = POST_INSTALL;
 
     return section;
-}
-
-static char *prepare_extracted_string(char *line) {
-    char *prep_str = helio_strdup(line);
-    int line_len = strlen(prep_str);
-    prep_str[line_len - 1] = '\0';
-    return prep_str;
-}
-
-//taken straight from yuiedit :p
-void get_colon_parsed_string(const char *original, char **storage) {
-    char *sub = strchr(original, ':') + 1;
-    if (sub[0] == ' ') {
-        sub++;
-    }
-
-    size_t copy_len = strlen(sub);
-    if (sub[copy_len - 1] == '\n') {
-        sub[copy_len - 1] = '\0';
-    } else if (sub[copy_len - 2] == '\r' && sub[copy_len - 1] == '\n') {
-        sub[copy_len - 2] = '\0';
-    }
-
-    *storage = helio_strdup(sub);
 }
 
 struct Campsite *parse_campsite(FILE *campsite_file) {
@@ -76,6 +53,7 @@ struct Campsite *parse_campsite(FILE *campsite_file) {
     camp->num_sources = 0;
     camp->num_prepare_steps = 0;
     camp->num_post_steps = 0;
+    camp->is_partial = false;
 
     while (fgets(line, sizeof(line), campsite_file) != NULL) {
         if (line[0] == '=') { //checking section, all will be like "= section ="
@@ -135,42 +113,19 @@ struct Campsite *parse_campsite(FILE *campsite_file) {
     return camp;
 }
 
-static void dismantle_campsite(struct Campsite *camp) {
-    for (int i = 0; i < camp->num_prepare_steps; i++) {
-        free(camp->prepare_steps[i]);
-    }
-    free(camp->prepare_steps);
+void dismantle_campsite(struct Campsite *camp) {
+    if (!camp->is_partial) {
+        free(camp->pkg_desc);
 
-    for (int i = 0; i < camp->num_dependencies; i++) {
-        free(camp->dependencies[i]);
+        free_strarr(&camp->prepare_steps, camp->num_prepare_steps);
+        free_strarr(&camp->dependencies, camp->num_dependencies);
+        free_strarr(&camp->sources, camp->num_sources);
     }
-    free(camp->dependencies);
 
-    for (int i = 0; i < camp->num_sources; i++) {
-        free(camp->sources[i]);
-    }
-    free(camp->sources);
-
-    for (int i = 0; i < camp->num_post_steps; i++) {
-        free(camp->post_install_steps[i]);
-    }
-    free(camp->post_install_steps);
-
-    free(camp->pkg_desc);
+    free_strarr(&camp->post_install_steps, camp->num_post_steps);
     free(camp->pkg_name);
     free(camp->pkg_ver);
     free(camp);
-}
-
-static int write_str_with_len(char *string, FILE *db_file) {
-    uint8_t cur_str_len = strlen(string);
-    size_t written = fwrite(&cur_str_len, 1, 1, db_file);
-    if (written != 1) return 1;
-
-    written = fwrite(string, 1, cur_str_len, db_file);
-    if (written != cur_str_len) return 1;
-
-    return 0;
 }
 
 enum RetCode build_package(FILE *campsite_file) {
@@ -195,7 +150,7 @@ enum RetCode build_package(FILE *campsite_file) {
     printf("extracting main source package %s...\n", camp->sources[0]);
     enum HelioReturnCode helio_return = helio_extract(camp->sources[0], false, NULL, true, false, NULL);
     if (helio_return != HELIO_SUCCESS) {
-        fprintf(stderr, "!! error while extracting %s.\n", camp->sources[0]);
+        fprintf(stderr, "!! error while extracting %s (%s).\n", camp->sources[0], helio_error_to_string(helio_return));
         dismantle_campsite(camp);
         return SHM_EXTRACT_ERROR;
     }

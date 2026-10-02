@@ -18,7 +18,12 @@ struct InstallPkg {
     bool is_dep;
 };
 
-struct Campsite *parse_shima_package(char *file_path);
+struct Campsite *parse_shm_pkg(char *file_path);
+char **fetch_installed_packages(void);
+bool is_pkg_already_installed(char **pkgs_installed, char *cur_pkg_name);
+
+FILE *open_db_file(enum RetCode *error_code);
+
 enum RetCode install_provided_packages(char **local_packages, char **db_packages, bool force);
 enum RetCode delete_provided_packages(char **local_packages, char **db_packages);
 

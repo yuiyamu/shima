@@ -121,6 +121,7 @@ static enum HelioReturnCode extract_file(FILE *file, uint32_t offset, const char
 
     //we could get things that are just Not files through here. in order to deal with that, dir check~
     if (uncompressed_size == 0) {
+        free(file_path);
         return HELIO_SUCCESS;
     }
 
@@ -614,17 +615,6 @@ void *safe_calloc(size_t num_elements, size_t element_size) {
     if (!return_ptr) memory_fail_exit();
 
     return return_ptr;
-}
-
-void helio_del_strarr(char ***strarr) {
-    if (strarr == NULL || *strarr == NULL) return; //already nulled out yo >_<
-
-    for (char **cur_str = *strarr; *cur_str != NULL; cur_str++) {
-        free(*cur_str);
-        *cur_str = NULL;
-    }
-    free(*strarr);
-    *strarr = NULL;
 }
 
 //only defining this since we may not have strdup in POSIX-2001
